@@ -8,15 +8,16 @@
     <link rel="stylesheet" href="./src/styles/index.css">
     
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body class="bg-[#0f0f0f] text-white">
     <div id="root">
-        <!-- Default Fallback UI -->
+        <!-- Default Fallback UI while files load -->
         <div class="flex flex-col h-screen w-full items-center justify-center">
             <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
-            <div id="loading-text" class="text-sm text-gray-400 font-mono text-center px-4">Initializing React...</div>
+            <div id="loading-text" class="text-sm text-gray-400 font-mono text-center px-4">Initializing App...</div>
         </div>
     </div>
 
@@ -49,7 +50,6 @@
             const loadingText = document.getElementById('loading-text');
             
             try {
-                // Ensure Babel exists
                 if (!window.Babel) throw new Error("Babel compiler failed to load from CDN.");
 
                 for (const src of scripts) {
@@ -57,8 +57,7 @@
                     
                     const response = await fetch(src);
                     if (!response.ok) {
-                        // GitHub Pages returns HTML for 404s, so we must manually throw if it's not OK
-                        throw new Error(`HTTP Error ${response.status}: Could not find ${src}. Ensure your folder structure on GitHub matches exactly.`);
+                        throw new Error(`HTTP Error ${response.status}: Could not find ${src}.`);
                     }
                     
                     const code = await response.text();
@@ -66,14 +65,28 @@
                     if(loadingText) loadingText.innerText = `Compiling ${src}...`;
                     
                     let compiledCode = code;
+                    
+                    // Only transpile JSX files. 
+                    // [ 'env', { modules: false } ] ensures Babel doesn't break any stray 'import' statements you left in the files.
                     if (src.endsWith('.jsx')) {
-                        compiledCode = Babel.transform(code, { presets: ['react', 'env'] }).code;
+                        compiledCode = Babel.transform(code, { 
+                            presets: [
+                                ['env', { modules: false }], 
+                                'react'
+                            ] 
+                        }).code;
                     }
                     
-                    // Execute the script
+                    // Execute the script as a native module so "import" statements are perfectly legal
                     const scriptEl = document.createElement('script');
+                    scriptEl.type = 'module'; // <--- THIS FIXES YOUR CRASH
                     scriptEl.textContent = compiledCode;
-                    document.body.appendChild(scriptEl);
+                    
+                    try {
+                        document.body.appendChild(scriptEl);
+                    } catch (appendErr) {
+                        throw new Error(`Syntax Error while evaluating ${src}:\n${appendErr.message}`);
+                    }
                 }
             } catch (err) {
                 console.error(err);
@@ -84,14 +97,13 @@
                             <p class="text-gray-300 text-sm font-mono bg-black/50 p-4 rounded text-left mb-4 overflow-x-auto">
                                 ${err.message}
                             </p>
-                            <p class="text-gray-400 text-xs">Check your browser console (F12) for more details.</p>
                         </div>
                     </div>`;
             }
         }
 
-        // Global Error Catcher for runtime script crashes
-        window.onerror = function(message, source, lineno, colno, error) {
+        // Global Error Catcher for rendering issues
+        window.onerror = function(message) {
             const root = document.getElementById('root');
             if(root && !root.innerHTML.includes('Application Error')) {
                 root.innerHTML = `
