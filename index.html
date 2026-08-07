@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="referrer" content="no-referrer">
+    <title>Universal Index Player</title>
+    
+    <link rel="stylesheet" href="src/styles/index.css">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="module">
+        import React, { useState, useEffect, useMemo, useRef, useContext } from 'https://esm.sh/react@18.2.0';
+        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+        import * as LucideIcons from 'https://esm.sh/lucide-react@0.292.0';
+
+        // 1. Expose dependencies globally so transpiled JSX files can access them
+        window.React = React;
+        window.createRoot = createRoot;
+        window.LucideIcons = LucideIcons;
+
+        // 2. Initialize Application Namespace
+        window.UIP = {};
+
+        // 3. Define the sequential loading order of your application modules
+        const scripts = [
+            'src/config/constants.js',
+            'src/context/AppContext.jsx',
+            'src/components/Shared.jsx',
+            'src/components/Grids.jsx',
+            'src/components/HeroBanner.jsx',
+            'src/components/Modals.jsx',
+            'src/pages/Views.jsx',
+            'src/App.jsx',
+            'src/index.jsx'
+        ];
+
+        // 4. Client-side Module Loader & Transpiler
+        async function loadApp() {
+            const root = document.getElementById('root');
+            root.innerHTML = '<div class="flex h-screen w-full items-center justify-center text-white"><div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div></div>';
+            
+            try {
+                for (const src of scripts) {
+                    const response = await fetch(src);
+                    if (!response.ok) throw new Error(`Failed to load ${src}`);
+                    
+                    const code = await response.text();
+                    let compiledCode = code;
+                    
+                    // Only transpile JSX files through Babel Standalone
+                    if (src.endsWith('.jsx')) {
+                        compiledCode = Babel.transform(code, { presets: ['react', 'env'] }).code;
+                    }
+                    
+                    // Execute the script in the global context
+                    const scriptEl = document.createElement('script');
+                    scriptEl.textContent = compiledCode;
+                    document.body.appendChild(scriptEl);
+                }
+            } catch (err) {
+                console.error(err);
+                root.innerHTML = `
+                    <div class="flex h-screen items-center justify-center bg-[#0f0f0f]">
+                        <div class="bg-[#1e1e1e] p-8 rounded-xl max-w-lg border border-red-500/30 text-center">
+                            <h2 class="text-xl font-bold text-red-500 mb-4">Application Failed to Load</h2>
+                            <p class="text-gray-300 text-sm leading-relaxed">
+                                Because this application uses a multi-file architecture, Chrome/Safari blocks fetching local files directly via <code>file://</code>.<br><br>
+                                Please open this folder using a <strong>Local Web Server</strong> (e.g. VS Code Live Server, or run <code>python -m http.server</code>).
+                            </p>
+                        </div>
+                    </div>`;
+            }
+        }
+
+        // Boot loader
+        if (window.Babel) {
+            loadApp();
+        } else {
+            window.addEventListener('DOMContentLoaded', () => setTimeout(loadApp, 100));
+        }
+    </script>
+</body>
+</html>
