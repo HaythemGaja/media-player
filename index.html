@@ -8,9 +8,20 @@
     <link rel="stylesheet" href="./src/styles/index.css">
     
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Load Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+    <!-- 1. IMPORT MAP: Tells the browser how to resolve bare imports natively -->
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "lucide-react": "https://esm.sh/lucide-react@0.292.0"
+        }
+    }
+    </script>
 </head>
 <body class="bg-[#0f0f0f] text-white">
     <div id="root">
@@ -22,17 +33,17 @@
     </div>
 
     <script type="module">
-        import React, { useState, useEffect, useMemo, useRef, useContext } from 'https://esm.sh/react@18.2.0';
-        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
-        import * as LucideIcons from 'https://esm.sh/lucide-react@0.292.0';
+        import React, { useState, useEffect, useMemo, useRef, useContext } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import * as LucideIcons from 'lucide-react';
 
-        // 1. Expose dependencies globally
+        // 2. Expose dependencies globally for classic React runtime
         window.React = React;
         window.createRoot = createRoot;
         window.LucideIcons = LucideIcons;
         window.UIP = window.UIP || {};
 
-        // 2. Exact File Map using safe relative paths
+        // 3. Exact File Map using safe relative paths
         const scripts = [
             './src/config/constants.js',
             './src/context/AppContext.jsx',
@@ -66,20 +77,20 @@
                     
                     let compiledCode = code;
                     
-                    // Only transpile JSX files. 
-                    // [ 'env', { modules: false } ] ensures Babel doesn't break any stray 'import' statements you left in the files.
                     if (src.endsWith('.jsx')) {
+                        // 4. Force Babel to use "classic" runtime (React.createElement) 
+                        // so it stops injecting the missing 'jsx-runtime' imports.
                         compiledCode = Babel.transform(code, { 
                             presets: [
                                 ['env', { modules: false }], 
-                                'react'
+                                ['react', { runtime: 'classic' }] 
                             ] 
                         }).code;
                     }
                     
-                    // Execute the script as a native module so "import" statements are perfectly legal
+                    // 5. Execute the script as a native module
                     const scriptEl = document.createElement('script');
-                    scriptEl.type = 'module'; // <--- THIS FIXES YOUR CRASH
+                    scriptEl.type = 'module'; 
                     scriptEl.textContent = compiledCode;
                     
                     try {
@@ -102,7 +113,6 @@
             }
         }
 
-        // Global Error Catcher for rendering issues
         window.onerror = function(message) {
             const root = document.getElementById('root');
             if(root && !root.innerHTML.includes('Application Error')) {
@@ -116,7 +126,6 @@
             }
         };
 
-        // Start Bootloader
         if (window.Babel) {
             loadApp();
         } else {
