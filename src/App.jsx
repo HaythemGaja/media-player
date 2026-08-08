@@ -1,33 +1,107 @@
 const { useState, useEffect } = React;
-const { Home, Film, Tv, Search, User } = window.LucideIcons;
-const { AppContext, HomeView, MoviesView, TvView, SearchView, ProfileView, SeeAllView, DetailsModal, PlayerOverlay, DEFAULT_SERVERS } = window.UIP;
+const { Film, Tv, Search, User } = window.LucideIcons;
+const { AppContext, MoviesView, TvView, SearchView, ProfileView, SeeAllView, DetailsModal, PlayerOverlay, DEFAULT_SERVERS } = window.UIP;
 
 const App = () => {
-    const [tmdbKey, setTmdbKey] = useState('15d2ea6d0dc1d476efbca3eba2b9bbfb');
-    const [selectedServerId, setSelectedServerId] = useState('vidsrc2');
-    const [dbLanguage, setDbLanguage] = useState('en-US');
-    const [servers, setServers] = useState(DEFAULT_SERVERS);
+    // 1. Core State
+    const [tmdbKey, setTmdbKey] = useState(() => localStorage.getItem('vaTmdbKey') || '15d2ea6d0dc1d476efbca3eba2b9bbfb');
+    const [selectedServerId, setSelectedServerId] = useState(() => localStorage.getItem('vaServer') || 'vidsrc2');
+    const [dbLanguage, setDbLanguage] = useState(() => localStorage.getItem('vaLanguage') || 'en-US');
+    const [servers, setServers] = useState(() => { try { const saved = localStorage.getItem('vaServers'); return saved ? JSON.parse(saved) : DEFAULT_SERVERS; } catch(e) { return DEFAULT_SERVERS; } });
     
-    const [favorites, setFavorites] = useState([]);
-    const [historyList, setHistoryList] = useState([]);
-    const [watchedEpisodes, setWatchedEpisodes] = useState({});
-    const [customLists, setCustomLists] = useState([]);
-    const [hideAdult, setHideAdult] = useState(true);
+    // 2. Persistent Storage Data (RESTORED FIX)
+    const [favorites, setFavorites] = useState(() => { try { return JSON.parse(localStorage.getItem('vaFavorites')) || []; } catch(e) { return []; } });
+    const [historyList, setHistoryList] = useState(() => { try { return JSON.parse(localStorage.getItem('vaHistory')) || []; } catch(e) { return []; } });
+    const [watchedEpisodes, setWatchedEpisodes] = useState(() => { try { return JSON.parse(localStorage.getItem('vaWatched')) || {}; } catch(e) { return {}; } });
+    const [customLists, setCustomLists] = useState(() => { try { return JSON.parse(localStorage.getItem('vaCustomLists')) || []; } catch(e) { return []; } });
+    const [hideAdult, setHideAdult] = useState(() => { try { const saved = localStorage.getItem('vaHideAdult'); return saved !== null ? JSON.parse(saved) : true; } catch(e) { return true; } });
 
-    const [activeTab, setActiveTab] = useState('home'); 
+    // 3. UI State (Default changed to 'movies' since Home is removed)
+    const [activeTab, setActiveTab] = useState('movies'); 
     const [seeAllConfig, setSeeAllConfig] = useState(null); 
     const [selectedMedia, setSelectedMedia] = useState(null); 
     const [activePlayerMedia, setActivePlayerMedia] = useState(null);
     const [notifications, setNotifications] = useState([]);
     const [loadingNotifications, setLoadingNotifications] = useState(false);
 
+    // 4. Save to Storage whenever data changes
+    useEffect(() => localStorage.setItem('vaFavorites', JSON.stringify(favorites)), [favorites]);
+    useEffect(() => localStorage.setItem('vaHistory', JSON.stringify(historyList)), [historyList]);
+    useEffect(() => localStorage.setItem('vaWatched', JSON.stringify(watchedEpisodes)), [watchedEpisodes]);
+    useEffect(() => localStorage.setItem('vaCustomLists', JSON.stringify(customLists)), [customLists]);
+    useEffect(() => localStorage.setItem('vaHideAdult', JSON.stringify(hideAdult)), [hideAdult]);
+    useEffect(() => localStorage.setItem('vaServer', selectedServerId), [selectedServerId]);
+    useEffect(() => localStorage.setItem('vaTmdbKey', tmdbKey), [tmdbKey]);
+    useEffect(() => localStorage.setItem('vaLanguage', dbLanguage), [dbLanguage]);
+    useEffect(() => localStorage.setItem('vaServers', JSON.stringify(servers)), [servers]);
+
+    // 5. Notification Logic for New Episodes (RESTORED FIX)
+    useEffect(() => {
+        const fetchNewEpisodes = async () => {
+            setLoadingNotifications(true);
+            try {
+                const tvShows = new Map();
+                favorites.forEach(item => { if (item.Type === 'tv' || item.Type === 'series') tvShows.set(item.id, item); });
+                customLists.forEach(list => list.items.forEach(item => { if (item.Type === 'tv' || item.Type === 'series') tvShows.set(item.id, item); }));
+
+                if (tvShows.size === 0) {
+                    setNotifications([]);
+                    setLoadingNotifications(false);
+                    return;
+                }
+                const promises = Array.from(tvShows.keys()).map(id =>
+                    fetch(`https://api.themoviedb.org/3/tv/${id}?api_key=${tmdbKey}&language=${dbLanguage}`).then(res => res.ok ? res.json() : null)
+                );
+                const details = await Promise.all(promises);
+                const newEpsList = [];
+                const sixtyDaysAgo = new Date(); sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+                const today = new Date();
+
+                details.forEach(show => {
+                    if (!show || !show.last_episode_to_air) return;
+                    const lastEp = show.last_episode_to_air;
+                    if (!lastEp.air_date) return;
+                    const airDate = new Date(lastEp.air_date);
+                    if (airDate >= sixtyDaysAgo && airDate <= today) {
+                        const isWatched = watchedEpisodes[show.id]?.[lastEp.season_number]?.includes(lastEp.episode_number);
+                        if (!isWatched) {
+                            newEpsList.push({
+                                ...tvShows.get(show.id), Title: show.name,
+                                backdrop: show.backdrop_path ? `https://image.tmdb.org/t/p/w780${show.backdrop_path}` : null,
+                                Poster: show.poster_path ? `https://image.tmdb.org/t/p/w500${show.poster_path}` : null,
+                                newEpInfo: lastEp
+                            });
+                        }
+                    }
+                });
+                newEpsList.sort((a, b) => new Date(b.newEpInfo.air_date) - new Date(a.newEpInfo.air_date));
+                setNotifications(newEpsList);
+            } catch (e) { }
+            setLoadingNotifications(false);
+        };
+        fetchNewEpisodes();
+    }, [favorites, customLists, watchedEpisodes, tmdbKey, dbLanguage]);
+
     const openDetails = (media) => setSelectedMedia(media);
     const closeDetails = () => setSelectedMedia(null);
     
-    // Core Functions required by child components
     const launchPlayer = (item, season = null, episode = null, epTitle = null, fullDetails = null) => {
         const type = item.media_type || item.Type || (item.name ? 'tv' : 'movie');
+        
         setActivePlayerMedia({ tmdbId: item.id, imdbId: item.imdbID || item.external_ids?.imdb_id || fullDetails?.external_ids?.imdb_id, type: type === 'series' ? 'tv' : type, season, episode, title: item.title || item.name || item.Title });
+        if (type === 'tv' || type === 'series') markEpisodeWatched(item.id, season, episode, true);
+
+        const histId = `${item.id}-${season || '0'}-${episode || '0'}`;
+        const newRecord = {
+            historyId: histId, id: item.id, imdbID: item.imdbID || item.external_ids?.imdb_id, Title: item.title || item.name || item.Title, Type: type,
+            Poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : item.Poster,
+            backdrop: item.backdrop_path ? `https://image.tmdb.org/t/p/w780${item.backdrop_path}` : item.backdrop,
+            season, episode, epTitle, timestamp: Date.now(), 
+            runtime: fullDetails?.runtime || (fullDetails?.episode_run_time?.[0]) || (type === 'movie' ? 120 : 45), 
+            genres: fullDetails?.genres?.map(g => g.id) || item.genre_ids || [], progress: 10 
+        };
+
+        setHistoryList(prev => [newRecord, ...prev.filter(h => h.historyId !== histId)].slice(0, 500));
         closeDetails();
     };
 
@@ -74,7 +148,6 @@ const App = () => {
             <div className="relative w-full h-full min-h-screen pb-20 bg-[#0f0f0f]">
                 {seeAllConfig ? <SeeAllView config={seeAllConfig} onBack={() => setSeeAllConfig(null)} /> : (
                     <>
-                        {activeTab === 'home' && <HomeView />}
                         {activeTab === 'movies' && <MoviesView />}
                         {activeTab === 'tv' && <TvView />}
                         {activeTab === 'search' && <SearchView />}
@@ -85,7 +158,6 @@ const App = () => {
                 <div className="fixed bottom-0 left-0 right-0 bg-[#0f0f0f]/95 backdrop-blur-md border-t border-white/10 px-6 py-3 z-40">
                     <div className="max-w-md mx-auto flex justify-between items-center">
                         {[
-                            { id: 'home', icon: Home, label: 'Home' },
                             { id: 'movies', icon: Film, label: 'Movies' },
                             { id: 'tv', icon: Tv, label: 'TV Shows' },
                             { id: 'search', icon: Search, label: 'Search' },
